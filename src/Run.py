@@ -2,10 +2,6 @@ from scraper.Scraper import scrapePlayerData
 
 players = scrapePlayerData()
 
-# Populate database
-# myconstants.PLAYER_COLLECTION.remove()
-# new_players = scraper.populate_collection(myconstants.PLAYER_COLLECTION, players)
-
 # Run forecasts
 # myconstants.FORECASTS_COLLECTION.remove()
 # forecast.run_forecasts()

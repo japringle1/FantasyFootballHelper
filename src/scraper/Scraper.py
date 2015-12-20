@@ -1,9 +1,9 @@
 import urllib2
 import json
+import re
 
 from constants import MyConstants
-from constants.FplJsonKeyNames import LAST_SEASONS_POINTS, WEB_NAME, SEASON_HISTORY, TEAM_NAME
-from constants.MyConstants import FIXTURE_KEY_MAP
+from constants.MyConstants import FIXTURE_KEY_MAP, PLAYER_COLLECTION
 
 
 def scrapePlayerData():
@@ -16,14 +16,16 @@ def scrapePlayerData():
         try:
             jsonData = urllib2.urlopen('http://fantasy.premierleague.com/web/api/elements/%d/' % (index))
             playerData = json.load(jsonData)
-            printScrapingMessage(playerData)
             players.append(formatPlayer(playerData))
+            printScrapingMessage(playerData)
             index += 1
         except ValueError:
             print str(index) + " wasn't a valid JSON."
         except urllib2.URLError:
             errorFlag = True
     print str(len(players)) + " players scraped.\n"
+
+    populateCollection(players)
     return players
 
 
@@ -32,29 +34,17 @@ def formatPlayer(playerData):
 
     newFixtureList = restructureFixtureData(playerData)
 
-    all_fixtures = {}
-
-    last_gw = 0
-
-    # Handle double gameweeks
+    newFixtures = {}
     for fixture in newFixtureList:
-        if (fixture["gw"] == last_gw):
-            duplicate = all_fixtures[str(fixture["gw"])]
-            fixtures = [duplicate, fixture]
-            points = (duplicate["points"] + fixture["points"]) / float(len(fixtures))
-            value = fixture["value"]
-            mins_played = fixture["mins_played"]
-            net_transfers = fixture["net_transfers"]
-            opposition_result = fixture["opponent_result"]
-            all_fixtures[str(fixture["gw"])] = {"gw": fixture["gw"], "fixtures": fixtures, "points": points,
-                                                "value": value, "mins_played": mins_played,
-                                                "net_transfers": net_transfers, "opponent_result": opposition_result}
-        else:
-            all_fixtures[str(fixture["gw"])] = fixture
+        gameweek = str(fixture["gw"])
+        del fixture["gw"]
+        if gameweek not in newFixtures:
+            newFixtures[gameweek] = []
+        newFixtures[gameweek].append(fixture)
 
-        last_gw = fixture["gw"]
+        processGameweekResult(fixture)
 
-    playerData["fixture_history"] = all_fixtures
+    playerData["fixture_history"] = newFixtures
 
     return playerData
 
@@ -62,7 +52,7 @@ def formatPlayer(playerData):
 def restructureFixtureData(playerData):
     del playerData["fixture_history"]["summary"]
     newFixtureList = []
-    for fixture in playerData["fixture_history"]["all"]:
+    for fixture in playerData["fixture_history"]["all"][:-1]:
         fixtureData = {}
         for key in FIXTURE_KEY_MAP.keys():
             fixtureData[MyConstants.FIXTURE_KEY_MAP[key]] = fixture[key]
@@ -70,17 +60,30 @@ def restructureFixtureData(playerData):
     return newFixtureList
 
 
+def processGameweekResult(fixture):
+    result = fixture["opponent_result"]
+    resultPattern = re.compile("([A-Z]{3})\\((H|A)\\) ([0-9]+)-([0-9]+)")
+    resultMatcher = resultPattern.match(result)
+
+    fixture["opposition"] = resultMatcher.group(1)
+    fixture["home_away"] = resultMatcher.group(2)
+    fixture["team_goals_scored"] = int(resultMatcher.group(3))
+    del fixture["opponent_result"]
+
+
 def addLastSeasonsPoints(playerData):
-    if len(playerData[SEASON_HISTORY]) > 0:
-        playerData[LAST_SEASONS_POINTS] = playerData[SEASON_HISTORY][-1][-1]
+    if len(playerData["season_history"]) > 0:
+        playerData["last_seasons_points"] = playerData["season_history"][-1][-1]
     else:
-        playerData[LAST_SEASONS_POINTS] = 0
-
-
-def populateCollection(collection, players):
-    for player in players:
-        collection.insert(player)
+        playerData["last_seasons_points"] = 0
 
 
 def printScrapingMessage(playerData):
-    print "Scraped " + playerData[WEB_NAME] + " from " + playerData[TEAM_NAME]
+    print "Scraped " + playerData["web_name"] + " from " + playerData["team_name"]
+
+
+def populateCollection(players):
+    print "Inserting into database..."
+    PLAYER_COLLECTION.remove()
+    for player in players:
+        PLAYER_COLLECTION.insert(player)
